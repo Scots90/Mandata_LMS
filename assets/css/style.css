@@ -1,0 +1,448 @@
+/* /assets/css/style.css */
+
+/* --- 1. General & Body Styling --- */
+:root {
+    --primary-color: #005A9C;
+    --secondary-color: #F0F0F0;
+    --accent-color: #00A8E8;
+    --text-color: #333;
+    --white-color: #FFFFFF;
+    --error-color: #D32F2F;
+    --success-color: #388E3C;
+    --border-radius: 5px;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    color: var(--text-color);
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    
+    /* ** NEW BACKGROUND IMAGE RULES ** */
+    background-image: linear-gradient(rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.8)), url('../images/mandata_logo.jpeg');
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
+    background-attachment: fixed; /* Keeps the image stationary on scroll */
+}
+
+h1, h2, h3 {
+    margin-bottom: 0.8rem;
+    line-height: 1.2;
+}
+
+h4 {
+    margin-bottom: 0.5rem;
+}
+
+p {
+    margin-bottom: 1rem;
+}
+
+a {
+    color: var(--accent-color);
+    text-decoration: none;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid #ddd;
+    margin: 2rem 0;
+}
+
+/* --- 2. Utility & Layout Classes --- */
+.container {
+    width: 90%;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px 0;
+}
+
+.button {
+    display: inline-block;
+    background-color: var(--primary-color);
+    color: var(--white-color);
+    padding: 10px 20px;
+    border: none;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    font-size: 1rem;
+    text-align: center;
+    transition: background-color 0.3s ease;
+}
+
+.button:hover {
+    background-color: var(--accent-color);
+}
+
+.card {
+    background-color: var(--white-color);
+    padding: 20px;
+    border-radius: var(--border-radius);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 20px;
+}
+
+/* --- 3. Header & Navigation --- */
+.main-header {
+    background-color: var(--white-color);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    padding: 10px 0;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+}
+
+.main-header .container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0;
+    width: 90%;
+}
+
+.main-header .logo h1 {
+    margin: 0;
+    color: var(--primary-color);
+    font-size: 1.5rem;
+}
+
+.main-nav ul {
+    list-style: none;
+    display: flex;
+    align-items: center;
+}
+
+.main-nav ul li {
+    margin-left: 20px;
+}
+
+.main-nav a {
+    color: var(--text-color);
+    font-weight: 500;
+    transition: color 0.3s ease;
+}
+
+.main-nav a:hover {
+    color: var(--accent-color);
+}
+
+/* --- 4. Main Content & Footer --- */
+main.container {
+    flex: 1;
+}
+
+.main-footer {
+    background-color: var(--primary-color);
+    color: var(--white-color);
+    text-align: center;
+    padding: 20px 0;
+    margin-top: auto;
+}
+
+.main-footer p {
+    margin: 0;
+}
+
+/* --- 5. Forms Styling --- */
+.login-container {
+    max-width: 400px;
+    margin: 40px auto;
+    padding: 30px;
+    background-color: var(--white-color);
+    border-radius: var(--border-radius);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    text-align: center;
+}
+
+.login-form .form-group, .form-group {
+    margin-bottom: 15px;
+    text-align: left;
+}
+
+.login-form label, .form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 500;
+}
+
+.login-form input[type="text"],
+.login-form input[type="password"],
+.login-form input[type="email"],
+.form-group input, .form-group textarea, .form-group select {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: var(--border-radius);
+}
+
+.login-form .button {
+    width: 100%;
+    margin-top: 10px;
+}
+
+.error-message {
+    background-color: #ffdddd;
+    border: 1px solid var(--error-color);
+    color: var(--error-color);
+    padding: 10px;
+    margin-bottom: 15px;
+    border-radius: var(--border-radius);
+}
+
+.success-message {
+    background-color: #d4edda;
+    border: 1px solid var(--success-color);
+    color: var(--success-color);
+    padding: 10px;
+    margin-bottom: 15px;
+    border-radius: var(--border-radius);
+}
+
+/* --- 6. Data Tables --- */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+}
+
+.data-table th, .data-table td {
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+    vertical-align: middle;
+}
+
+.data-table th {
+    background-color: #f2f2f2;
+    font-weight: 600;
+}
+
+.data-table tr:hover {
+    background-color: #f9f9f9;
+}
+
+.data-table .actions-cell {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.data-table .actions-cell .button {
+    display: inline-block;
+    text-align: center;
+    vertical-align: middle;
+    line-height: 1.5;
+    padding: 5px 10px;
+    font-size: 0.9rem;
+}
+
+
+/* --- 7. Specific Buttons --- */
+.button.delete-btn {
+    background-color: var(--error-color);
+}
+
+.button.delete-btn:hover {
+    background-color: #a52525;
+}
+
+/* --- 8. Course View, Quiz & Slideshow --- */
+.course-view-container .course-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 1rem;
+}
+
+.course-view-container .page-counter {
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.course-view-container .course-navigation {
+    margin-top: 20px;
+    overflow: hidden;
+}
+
+.slideshow-container {
+    position: relative;
+    margin: auto;
+}
+.slide-text {
+    padding: 15px;
+    text-align: center;
+    background: #f1f1f1;
+    border-top: 1px solid #ddd;
+}
+.prev-slide, .next-slide {
+    cursor: pointer;
+    position: absolute;
+    top: 50%;
+    width: auto;
+    padding: 16px;
+    margin-top: -35px;
+    color: white;
+    font-weight: bold;
+    font-size: 20px;
+    transition: 0.6s ease;
+    border-radius: 0 3px 3px 0;
+    user-select: none;
+    background-color: rgba(0,0,0,0.5);
+}
+.next-slide {
+    right: 0;
+    border-radius: 3px 0 0 3px;
+}
+.prev-slide:hover, .next-slide:hover {
+    background-color: rgba(0,0,0,0.8);
+}
+
+.quiz-question-container {
+    padding: 10px;
+    margin-bottom: 25px;
+    border-bottom: 1px solid #eee;
+}
+
+.quiz-question-container:last-of-type {
+    border-bottom: none;
+    margin-bottom: 15px;
+}
+
+.quiz-option {
+    display: flex;
+    align-items: center;
+    padding: 8px;
+    margin-bottom: 5px;
+    border-radius: var(--border-radius);
+    transition: background-color 0.2s ease-in-out;
+}
+
+.quiz-option:hover {
+    background-color: #f9f9f9;
+}
+
+.quiz-option input[type="radio"] {
+    width: auto;
+    margin-right: 10px;
+}
+
+.quiz-option label {
+    margin-bottom: 0;
+    flex-grow: 1;
+    cursor: pointer;
+}
+
+
+/* --- 9. Dashboard Enhancements --- */
+.stat-card {
+    text-align: center;
+}
+
+.stat-card h3 {
+    font-size: 1rem;
+    color: #666;
+    text-transform: uppercase;
+}
+
+.stat-card .stat-number {
+    font-size: 2.5rem;
+    font-weight: bold;
+    color: var(--primary-color);
+}
+
+.course-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 3px 8px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    border-radius: 12px;
+    color: var(--white-color);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+}
+
+.status-not-started { background-color: #6c757d; }
+.status-in-progress { background-color: var(--accent-color); }
+.status-failed { background-color: var(--error-color); }
+.status-completed { background-color: var(--success-color); }
+
+
+/* --- 10. Mobile Navigation --- */
+.mobile-menu-toggle {
+    display: none; /* Hidden by default */
+    flex-direction: column;
+    justify-content: space-around;
+    width: 30px;
+    height: 25px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+}
+
+.mobile-menu-toggle span {
+    width: 100%;
+    height: 3px;
+    background-color: var(--primary-color);
+    border-radius: 5px;
+    transition: all 0.3s ease-in-out;
+}
+
+
+/* --- 11. Responsive Design --- */
+@media (max-width: 900px) {
+    .main-header .container {
+        flex-wrap: wrap;
+    }
+
+    .mobile-menu-toggle {
+        display: flex;
+    }
+
+    .main-nav {
+        display: none;
+        width: 100%;
+        margin-top: 15px;
+    }
+
+    .main-nav ul {
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .main-nav ul li {
+        margin: 0;
+        width: 100%;
+        text-align: center;
+    }
+
+    .main-nav ul li a {
+        display: block;
+        padding: 15px;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    
+    .main-nav.nav-open {
+        display: block;
+    }
+}
