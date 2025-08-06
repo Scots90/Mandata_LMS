@@ -1,54 +1,68 @@
 <?php
 session_start();
 header('Content-Type: application/json');
+require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
 
-// Security checks
-if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin' || $_SERVER['REQUEST_METHOD'] !== 'POST') {
+if (!isAdmin()) {
     echo json_encode(['status' => 'error', 'message' => 'Unauthorized access.']);
     exit();
 }
 
-require_once '../includes/db_connect.php';
-
 $action = $_POST['action'] ?? '';
 $response = ['status' => 'error', 'message' => 'Invalid action.'];
 
-// --- UPDATE ACTION ---
+// --- UPDATE USER ACTION (REWRITTEN) ---
 if ($action === 'update_user') {
-    $user_id = $_POST['id'] ?? 0;
-    $username = trim($_POST['username'] ?? '');
-    $email = trim($_POST['email'] ?? '');
-    $role = $_POST['role'] ?? 'student';
+    $user_id = $_POST['user_id'] ?? 0;
+    $roles = $_POST['roles'] ?? [];
+    $manager_id = !empty($_POST['manager_id']) ? (int)$_POST['manager_id'] : null;
 
-    if ($user_id > 0 && !empty($username) && filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        // Prevent admin from editing their own role to student
-        if ($user_id == $_SESSION['user_id'] && $role === 'student') {
-             $response['message'] = 'Error: You cannot change your own role.';
-        } else {
-            $stmt = $conn->prepare("UPDATE users SET username = ?, email = ?, role = ? WHERE user_id = ?");
-            $stmt->bind_param("sssi", $username, $email, $role, $user_id);
-            if ($stmt->execute()) {
-                $response = ['status' => 'success', 'message' => 'User updated successfully.'];
-            } else {
-                $response['message'] = 'Error: Username or email may already be in use.';
+    if ($user_id > 0 && !empty($roles)) {
+        $conn->begin_transaction();
+        try {
+            // Update the manager_id in the users table
+            $stmt_manager = $conn->prepare("UPDATE users SET manager_id = ? WHERE user_id = ?");
+            $stmt_manager->bind_param("ii", $manager_id, $user_id);
+            $stmt_manager->execute();
+            $stmt_manager->close();
+
+            // Delete existing roles for the user
+            $stmt_delete = $conn->prepare("DELETE FROM user_roles WHERE user_id = ?");
+            $stmt_delete->bind_param("i", $user_id);
+            $stmt_delete->execute();
+            $stmt_delete->close();
+            
+            // Insert the new roles
+            $stmt_insert = $conn->prepare("INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)");
+            foreach ($roles as $role_id) {
+                $stmt_insert->bind_param("ii", $user_id, $role_id);
+                $stmt_insert->execute();
             }
-            $stmt->close();
+            $stmt_insert->close();
+            
+            $conn->commit();
+            $response = ['status' => 'success', 'message' => 'User updated successfully.'];
+
+        } catch (Exception $e) {
+            $conn->rollback();
+            $response['message'] = 'Database error: ' . $e->getMessage();
         }
     } else {
-        $response['message'] = 'Invalid data provided.';
+        $response['message'] = 'Invalid data provided. User ID and at least one role are required.';
     }
 }
 
-// --- DELETE ACTION ---
-if ($action === 'delete_user') {
-    $user_id = $_POST['id'] ?? 0;
 
-    // Critical security check: prevent an admin from deleting themselves
-    if ($user_id == $_SESSION['user_id']) {
+// --- DELETE USER ACTION ---
+if ($action === 'delete_user') {
+    $user_id_to_delete = $_POST['id'] ?? 0;
+
+    if ($user_id_to_delete == $_SESSION['user_id']) {
         $response['message'] = 'Error: You cannot delete your own account.';
-    } elseif ($user_id > 0) {
+    } elseif ($user_id_to_delete > 0) {
         $stmt = $conn->prepare("DELETE FROM users WHERE user_id = ?");
-        $stmt->bind_param("i", $user_id);
+        $stmt->bind_param("i", $user_id_to_delete);
         if ($stmt->execute()) {
             $response = ['status' => 'success', 'message' => 'User deleted successfully.'];
         } else {
@@ -62,3 +76,4 @@ if ($action === 'delete_user') {
 
 $conn->close();
 echo json_encode($response);
+?>

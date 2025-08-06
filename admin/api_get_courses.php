@@ -2,8 +2,8 @@
 session_start();
 header('Content-Type: application/json');
 
-// Security check to ensure an admin is logged in
-if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
+// --- FIX: Allow 'manager' role to access this API ---
+if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['admin', 'manager'])) {
     echo json_encode(['error' => 'Unauthorized']);
     exit();
 }

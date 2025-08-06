@@ -1,7 +1,13 @@
 <?php
 session_start();
-if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') { header("Location: ../login.php"); exit(); }
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
+
+// --- Corrected Security Check ---
+if (!isLoggedIn() || (!isAdmin() && !isManager())) {
+    header("Location: ../login.php");
+    exit();
+}
 
 $feedback = '';
 $feedback_type = 'success';
@@ -10,21 +16,35 @@ $feedback_type = 'success';
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['assign_course'])) {
     $course_id = $_POST['course_id_to_assign'];
     $user_ids = $_POST['user_ids'] ?? [];
+    $deadline = !empty($_POST['deadline']) ? $_POST['deadline'] : null;
 
     if (!empty($course_id) && !empty($user_ids)) {
         $assigned_count = 0;
         $already_active_count = 0;
-        
+
+        if (isManager() && !isAdmin()) {
+            $manager_id = $_SESSION['user_id'];
+            $check_user_stmt = $conn->prepare("SELECT user_id FROM users WHERE user_id = ? AND manager_id = ?");
+        }
+
         $check_stmt = $conn->prepare("SELECT enrollment_id FROM user_courses WHERE user_id = ? AND course_id = ? AND is_active = 1");
-        $insert_stmt = $conn->prepare("INSERT INTO user_courses (user_id, course_id) VALUES (?, ?)");
+        $insert_stmt = $conn->prepare("INSERT INTO user_courses (user_id, course_id, deadline) VALUES (?, ?, ?)");
 
         foreach ($user_ids as $user_id) {
+            if (isManager() && !isAdmin()) {
+                $check_user_stmt->bind_param("ii", $user_id, $manager_id);
+                $check_user_stmt->execute();
+                if ($check_user_stmt->get_result()->num_rows == 0) {
+                    continue;
+                }
+            }
+
             $check_stmt->bind_param("ii", $user_id, $course_id);
             $check_stmt->execute();
             $check_result = $check_stmt->get_result();
 
             if ($check_result->num_rows == 0) {
-                $insert_stmt->bind_param("ii", $user_id, $course_id);
+                $insert_stmt->bind_param("iis", $user_id, $course_id, $deadline);
                 if ($insert_stmt->execute()) {
                     $assigned_count++;
                 }
@@ -32,29 +52,45 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['assign_course'])) {
                 $already_active_count++;
             }
         }
-        
+
+        if (isManager() && !isAdmin()) { $check_user_stmt->close(); }
         $check_stmt->close();
         $insert_stmt->close();
-        
+
         $feedback = "Assigned course to $assigned_count new user(s).";
         if ($already_active_count > 0) {
             $feedback .= " $already_active_count user(s) already had an active enrollment for this course.";
         }
     } else {
-        $feedback = 'Please select a product, category, course, and at least one user.';
+        $feedback = 'Please select a course and at least one user.';
         $feedback_type = 'error';
     }
 }
 
-// Fetch data for the form
+// --- Fetch Data for Page Display ---
 $products = $conn->query("SELECT product_id, product_name FROM products ORDER BY product_name");
-$users = $conn->query("SELECT user_id, username FROM users WHERE role = 'student' ORDER BY username");
-$enrollments_result = $conn->query("
+
+// --- Corrected Query for Students ---
+$user_sql = "SELECT u.user_id, u.username FROM users u JOIN user_roles ur ON u.user_id = ur.user_id WHERE ur.role_id = 3"; // role_id 3 = student
+if (isManager() && !isAdmin()) {
+    $user_sql .= " AND u.manager_id = " . (int)$_SESSION['user_id'];
+}
+$user_sql .= " ORDER BY u.username";
+$users = $conn->query($user_sql);
+
+// --- Corrected Query for Enrollments ---
+$enrollment_sql = "
     SELECT uc.enrollment_id, u.username, c.course_name
-    FROM user_courses uc JOIN users u ON uc.user_id = u.user_id JOIN courses c ON uc.course_id = c.course_id
-    WHERE u.role = 'student' AND uc.is_active = 1
-    ORDER BY u.username, c.course_name
-");
+    FROM user_courses uc 
+    JOIN users u ON uc.user_id = u.user_id 
+    JOIN courses c ON uc.course_id = c.course_id
+    WHERE uc.is_active = 1";
+if (isManager() && !isAdmin()) {
+    $enrollment_sql .= " AND u.manager_id = " . (int)$_SESSION['user_id'];
+}
+$enrollment_sql .= " ORDER BY u.username, c.course_name";
+$enrollments_result = $conn->query($enrollment_sql);
+
 
 include '../includes/header.php';
 ?>
@@ -102,6 +138,10 @@ include '../includes/header.php';
                         <option value="<?php echo $row['user_id']; ?>"><?php echo htmlspecialchars($row['username']); ?></option>
                     <?php endwhile; endif; ?>
                 </select>
+            </div>
+            <div class="form-group">
+                <label for="deadline">5. Set Deadline (Optional)</label>
+                <input type="date" id="deadline" name="deadline" style="width:100%; padding: 8px;">
             </div>
             <button type="submit" name="assign_course" class="button">Assign Course</button>
         </form>

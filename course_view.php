@@ -1,173 +1,206 @@
 <?php
 session_start();
+require_once 'includes/functions.php';
+
+if (!isLoggedIn()) {
+    redirect('login.php');
+}
+
 require_once 'includes/db_connect.php';
 
-// --- Check for preview mode ---
-$is_preview = (isset($_GET['preview']) && $_GET['preview'] == 'true' && isset($_SESSION['role']) && $_SESSION['role'] === 'admin');
+// --- Get Course and User Information ---
+$course_id = $_GET['id'] ?? 0;
+$user_id = $_SESSION['user_id'];
+$is_preview = isset($_GET['preview']) && (isAdmin() || isManager());
 
-// 1. Security & Basic Setup
-if (!$is_preview && !isset($_SESSION['user_id'])) {
-    header("Location: login.php");
-    exit();
+if (!$course_id) { die("Invalid course ID."); }
+
+
+// --- FIX: Reworked Content and Quiz Logic ---
+
+// 1. Fetch ALL content items for the course
+$all_content_stmt = $conn->prepare("SELECT * FROM course_content WHERE course_id = ? ORDER BY content_order ASC");
+$all_content_stmt->bind_param("i", $course_id);
+$all_content_stmt->execute();
+$all_content_items = $all_content_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$all_content_stmt->close();
+
+// 2. Separate them into logical groups
+$main_content_flow = []; // Will hold standard content and inline quizzes in order
+$final_quiz_questions = []; // Will hold only the final quiz questions
+
+foreach ($all_content_items as $item) {
+    if ($item['content_type'] === 'quiz_final') {
+        $final_quiz_questions[] = $item;
+    } else {
+        // This includes 'text', 'image', 'video', 'image_gallery', and 'quiz_inline'
+        $main_content_flow[] = $item;
+    }
 }
-$user_id = $_SESSION['user_id'] ?? 0; // Set to 0 if not logged in but in preview
-$course_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
-$current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 
-if ($course_id === 0) { header("Location: dashboard.php"); exit(); }
-
-// 2. Fetch Course Content
-$content_stmt = $conn->prepare("SELECT * FROM course_content WHERE course_id = ? AND content_type != 'quiz_final' ORDER BY content_order ASC");
-$content_stmt->bind_param("i", $course_id);
-$content_stmt->execute();
-$all_content = $content_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-$content_stmt->close();
-$total_pages = count($all_content);
-
-if (!$is_preview && $total_pages > 0) {
-    // Get user's enrollment details
-    $enrollment_stmt = $conn->prepare("SELECT enrollment_id, status FROM user_courses WHERE user_id = ? AND course_id = ?");
+// Security Check & Enrollment
+$enrollment_id = 0;
+if (!$is_preview) {
+    $enrollment_stmt = $conn->prepare("SELECT enrollment_id FROM user_courses WHERE user_id = ? AND course_id = ? AND is_active = 1");
     $enrollment_stmt->bind_param("ii", $user_id, $course_id);
     $enrollment_stmt->execute();
-    $enrollment = $enrollment_stmt->get_result()->fetch_assoc();
+    $enrollment_data = $enrollment_stmt->get_result()->fetch_assoc();
+    $enrollment_id = $enrollment_data['enrollment_id'] ?? 0;
     $enrollment_stmt->close();
-
-    if (!$enrollment) { header("Location: dashboard.php"); exit(); }
-    $enrollment_id = $enrollment['enrollment_id'];
-
-    // Update status to 'in_progress' if it was 'not_started'
-    if ($enrollment['status'] === 'not_started') {
-        $update_stmt = $conn->prepare("UPDATE user_courses SET status = 'in_progress' WHERE enrollment_id = ?");
-        $update_stmt->bind_param("i", $enrollment_id);
-        $update_stmt->execute();
-        $update_stmt->close();
-    }
-
-    // Save the current page as the last viewed page
-    $save_progress_stmt = $conn->prepare("UPDATE user_courses SET last_viewed_page = ? WHERE enrollment_id = ?");
-    $save_progress_stmt->bind_param("ii", $current_page, $enrollment_id);
-    $save_progress_stmt->execute();
-    $save_progress_stmt->close();
+    if (!$enrollment_id) { die("You are not enrolled in this course."); }
 }
 
-// 3. Handle Inline Quiz Submission
-$feedback = ['message' => '', 'type' => ''];
-if (!$is_preview && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_inline_quiz'])) {
-    $submitted_answer = $_POST['answer'];
-    $content_id = $_POST['content_id'];
-    $quiz_stmt = $conn->prepare("SELECT content_data FROM course_content WHERE content_id = ?");
-    $quiz_stmt->bind_param("i", $content_id);
-    $quiz_stmt->execute();
-    $quiz_data = json_decode($quiz_stmt->get_result()->fetch_assoc()['content_data'], true);
-    $quiz_stmt->close();
-    if ($submitted_answer === $quiz_data['correct_answer']) {
-        $feedback = ['message' => 'Correct! You can proceed to the next page.', 'type' => 'success'];
-    } else {
-        $feedback = ['message' => 'Not quite. Please review the material and try again.', 'type' => 'error'];
+// --- 3. Updated Page Logic ---
+$is_final_quiz_page = isset($_GET['page']) && $_GET['page'] === 'final_quiz';
+$total_main_pages = count($main_content_flow);
+$current_page_num = 0;
+$current_page_content = null;
+
+if ($is_final_quiz_page) {
+    $current_page_num = $total_main_pages + 1; // The final quiz is always the last item
+} else {
+    $current_page_num = $_GET['page'] ?? 1;
+    $current_page_num = max(1, min($total_main_pages, (int)$current_page_num));
+    $current_page_index = $current_page_num - 1;
+    if (isset($main_content_flow[$current_page_index])) {
+        $current_page_content = $main_content_flow[$current_page_index];
     }
 }
 
-// 4. Determine Current Page Content
-$page_index = $current_page - 1;
-if ($page_index < 0 || ($total_pages > 0 && $page_index >= $total_pages)) {
-    echo "Invalid page number.";
-    exit();
+// Update user's progress if they are a student on a content page
+if (!$is_preview && $enrollment_id && !$is_final_quiz_page) {
+    $progress_stmt = $conn->prepare("UPDATE user_courses SET last_viewed_page = ?, status = 'in_progress' WHERE enrollment_id = ? AND status = 'not_started'");
+    $progress_stmt->bind_param("ii", $current_page_num, $enrollment_id);
+    $progress_stmt->execute();
+    $progress_stmt->close();
 }
-$page_content = $total_pages > 0 ? $all_content[$page_index] : ['title' => 'Course Preview'];
+
+$course_name_result = $conn->query("SELECT course_name FROM courses WHERE course_id = $course_id");
+$course_name = $course_name_result ? $course_name_result->fetch_assoc()['course_name'] : 'Course';
 
 include 'includes/header.php';
 ?>
 
 <div class="course-view-container">
-    <?php if ($is_preview): ?>
-        <div class="success-message" style="text-align:center;"><strong>PREVIEW MODE</strong></div>
-    <?php endif; ?>
+    <aside class="course-sidebar">
+        <h4><?php echo htmlspecialchars($course_name); ?></h4>
+        <nav>
+            <ul>
+                <?php foreach ($main_content_flow as $index => $page): ?>
+                    <?php $page_num = $index + 1; ?>
+                    <li class="<?php echo ($page_num == $current_page_num) ? 'active' : ''; ?>">
+                        <a href="course_view.php?id=<?php echo $course_id; ?>&page=<?php echo $page_num; ?><?php if ($is_preview) echo '&preview=true'; ?>">
+                            <?php echo $page_num . '. ' . htmlspecialchars($page['title']); ?>
+                        </a>
+                    </li>
+                <?php endforeach; ?>
 
-    <div class="course-header">
-        <h1><?php echo htmlspecialchars($page_content['title']); ?></h1>
-        <span class="page-counter">Page <?php echo $current_page; ?> of <?php echo $total_pages; ?></span>
-    </div>
+                <?php if (!empty($final_quiz_questions)): ?>
+                    <li class="<?php echo $is_final_quiz_page ? 'active' : ''; ?>">
+                        <a href="course_view.php?id=<?php echo $course_id; ?>&page=final_quiz<?php if ($is_preview) echo '&preview=true'; ?>">
+                            Final Quiz
+                        </a>
+                    </li>
+                <?php endif; ?>
+            </ul>
+        </nav>
+    </aside>
 
-    <div class="course-content card">
-        <?php
-        if ($total_pages > 0) {
-            $type = $page_content['content_type'];
-            $data = $page_content['content_data'];
+    <main class="course-content">
+        <?php if ($is_final_quiz_page): ?>
+            <h2>Final Quiz</h2>
+            <?php if ($is_preview): ?>
+                <?php foreach($final_quiz_questions as $index => $question): ?>
+                    <?php $quiz_data = json_decode($question['content_data'], true); ?>
+                     <div class="quiz-review-item" style="margin-bottom: 25px; padding-bottom: 15px; border-bottom: 1px solid #eee;">
+                        <h4>Question <?php echo $index + 1; ?>: <?php echo htmlspecialchars($quiz_data['question']); ?></h4>
+                        <ul>
+                        <?php foreach($quiz_data['options'] as $key => $option): ?>
+                            <li style="<?php echo ($key == $quiz_data['correct_answer']) ? 'font-weight:bold; color:green;' : ''; ?>">
+                                <?php echo ucfirst($key); ?>) <?php echo htmlspecialchars($option); ?>
+                            </li>
+                        <?php endforeach; ?>
+                        </ul>
+                    </div>
+                <?php endforeach; ?>
+            <?php else: ?>
+                 <div class='card text-center'>
+                    <h3>Final Quiz</h3>
+                    <p>You are about to start the final quiz for this course. Click the button below to begin.</p>
+                    <a href='quiz.php?course_id=<?php echo $course_id; ?>&content_id=<?php echo $final_quiz_questions[0]['content_id']; ?>' class='button'>Start Final Quiz</a>
+                </div>
+            <?php endif; ?>
 
-            if ($type === 'text') {
-                echo '<div class="formatted-text-content">' . $data . '</div>';
-            } elseif ($type === 'video') {
-                $video_path = '/mandata_lms/uploads/videos/' . htmlspecialchars($data);
-                echo '<video controls width="100%"><source src="' . $video_path . '" type="video/mp4">Your browser does not support the video tag.</video>';
-            } elseif ($type === 'image') {
-                $image_path = '/mandata_lms/uploads/images/' . htmlspecialchars($data);
-                echo '<img src="' . $image_path . '" alt="' . htmlspecialchars($page_content['title']) . '" style="max-width: 100%;">';
-            } elseif ($type === 'image_gallery') {
-                $gallery_items = json_decode($data, true);
-                if ($gallery_items) {
-                    echo '<div class="slideshow-container">';
-                    foreach ($gallery_items as $index => $item) {
-                        $image_path = '/mandata_lms/uploads/images/' . htmlspecialchars($item['image']);
-                        echo '<div class="slide" style="' . ($index > 0 ? 'display:none;' : '') . '">';
-                        echo '  <img src="' . $image_path . '" style="width:100%;">';
-                        echo '  <div class="slide-text">' . htmlspecialchars($item['text']) . '</div>';
+        <?php elseif ($current_page_content): ?>
+            <h2><?php echo htmlspecialchars($current_page_content['title']); ?></h2>
+            <?php
+            $content_type = $current_page_content['content_type'];
+            $content_data = $current_page_content['content_data'];
+
+            switch ($content_type) {
+                case 'text':
+                    echo "<div>{$content_data}</div>";
+                    break;
+                case 'image':
+                    echo "<img src='uploads/images/{$content_data}' alt='Course Image' style='max-width:100%; height:auto;'>";
+                    break;
+                case 'video':
+                    echo "<video controls style='width:100%;'><source src='uploads/videos/{$content_data}' type='video/mp4'>Your browser does not support the video tag.</video>";
+                    break;
+                case 'image_gallery':
+                    $gallery_items = json_decode($content_data, true);
+                    if ($gallery_items) {
+                        echo '<div class="slideshow-container">';
+                        foreach ($gallery_items as $item) {
+                            echo '<div class="slide fade">';
+                            echo "<img src='uploads/images/{$item['image']}' style='width:100%'>";
+                            if (!empty($item['text'])) {
+                                echo "<div class='slide-text'>" . htmlspecialchars($item['text']) . "</div>";
+                            }
+                            echo '</div>';
+                        }
+                        echo '<a class="prev-slide">&#10094;</a><a class="next-slide">&#10095;</a>';
                         echo '</div>';
                     }
-                    echo '<a class="prev-slide">&#10094;</a>';
-                    echo '<a class="next-slide">&#10095;</a>';
-                    echo '</div>';
-                }
-            } elseif ($type === 'quiz_inline') {
-                $quiz = json_decode($data, true);
-                echo '<div class="quiz-question-container">';
-                echo '  <h4>Knowledge Check</h4>';
-                if (!empty($quiz['image_path'])) {
-                    $image_path = '/mandata_lms/uploads/quiz_images/' . htmlspecialchars($quiz['image_path']);
-                    echo '<img src="' . $image_path . '" alt="Quiz image" style="max-width: 100%; margin-bottom: 15px;">';
-                }
-                echo '<p>' . htmlspecialchars($quiz['question']) . '</p>';
-                if (!empty($feedback['message'])) { echo "<div class='{$feedback['type']}-message'>{$feedback['message']}</div>"; }
-                echo '<form method="POST"><fieldset' . ($is_preview ? ' disabled' : '') . '>';
-                echo '<input type="hidden" name="content_id" value="' . $page_content['content_id'] . '">';
-                foreach ($quiz['options'] as $key => $option) {
-                    echo '<div class="quiz-option">';
-                    echo '  <input type="radio" id="option_'.$key.'" name="answer" value="' . $key . '" required>';
-                    echo '  <label for="option_'.$key.'">' . htmlspecialchars($option) . '</label>';
-                    echo '</div>';
-                }
-                echo '<button type="submit" name="submit_inline_quiz" class="button">Submit Answer</button></fieldset></form>';
-                if ($is_preview) echo '<p><em>Quiz submission is disabled in preview mode.</em></p>';
-                echo '</div>';
+                    break;
+                case 'quiz_inline':
+                    if ($is_preview) {
+                        $quiz_data = json_decode($content_data, true);
+                        echo '<div class="quiz-review-item" style="border:1px solid #ddd; padding:15px; border-radius:5px;">';
+                        echo '<h4>Inline Question: ' . htmlspecialchars($quiz_data['question']) . '</h4>';
+                        echo '<ul>';
+                        foreach($quiz_data['options'] as $key => $option){
+                            echo '<li style="' . ($key == $quiz_data['correct_answer'] ? 'font-weight:bold; color:green;' : '') . '">';
+                            echo ucfirst($key) . ') ' . htmlspecialchars($option) . '</li>';
+                        }
+                        echo '</ul></div>';
+                    } else {
+                        echo "<div class='card text-center'>";
+                        echo "<h3>Knowledge Check</h3><p>You have reached a quiz. Click the button below to start.</p>";
+                        echo "<a href='quiz.php?course_id={$course_id}&content_id={$current_page_content['content_id']}' class='button'>Start Quiz</a>";
+                        echo "</div>";
+                    }
+                    break;
             }
-        } else {
-             if ($is_preview) {
-                 echo "<p>This course has no content yet. Go to 'Manage Content' to add pages.</p>";
-             } else {
-                 header("Location: take_quiz.php?id=" . $course_id);
-                 exit();
-             }
-        }
-        ?>
-    </div>
-
-    <div class="course-navigation">
-        <?php $preview_param = $is_preview ? '&preview=true' : ''; ?>
-        <?php if ($current_page > 1): ?>
-            <a href="course_view.php?id=<?php echo $course_id; ?>&page=<?php echo $current_page - 1 . $preview_param; ?>" class="button">← Previous</a>
+            ?>
+        <?php else: ?>
+            <p>Please select a page from the sidebar to view its content.</p>
         <?php endif; ?>
-        <?php
-        $can_proceed = ($is_preview || !isset($page_content['content_type']) || $page_content['content_type'] !== 'quiz_inline' || ($feedback['type'] ?? '') === 'success');
-        if ($can_proceed):
-            if ($current_page < $total_pages): ?>
-                <a href="course_view.php?id=<?php echo $course_id; ?>&page=<?php echo $current_page + 1 . $preview_param; ?>" class="button" style="float: right;">Next →</a>
-            <?php elseif ($total_pages > 0): ?>
-                <a href="take_quiz.php?id=<?php echo $course_id . $preview_param; ?>" class="button" style="float: right; background-color: var(--success-color);">Take Final Quiz →</a>
-            <?php endif;
-        endif;
-        ?>
-    </div>
+
+        <div class="course-navigation">
+            <?php if (!$is_final_quiz_page && $current_page_num > 1): ?>
+                <a href="course_view.php?id=<?php echo $course_id; ?>&page=<?php echo $current_page_num - 1; ?><?php if ($is_preview) echo '&preview=true'; ?>" class="button">← Previous</a>
+            <?php endif; ?>
+            <?php if (!$is_final_quiz_page && $current_page_num < $total_main_pages): ?>
+                <a href="course_view.php?id=<?php echo $course_id; ?>&page=<?php echo $current_page_num + 1; ?><?php if ($is_preview) echo '&preview=true'; ?>" class="button" style="float: right;">Next →</a>
+            <?php elseif (!$is_final_quiz_page && !empty($final_quiz_questions)): ?>
+                 <a href="course_view.php?id=<?php echo $course_id; ?>&page=final_quiz<?php if ($is_preview) echo '&preview=true'; ?>" class="button" style="float: right;">Go to Final Quiz →</a>
+            <?php endif; ?>
+        </div>
+    </main>
 </div>
 
 <?php
+$conn->close();
 include 'includes/footer.php';
 ?>

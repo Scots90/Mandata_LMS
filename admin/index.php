@@ -1,27 +1,34 @@
 <?php
 session_start();
-if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') { header("Location: ../login.php"); exit(); }
+require_once '../includes/functions.php';
+
+// Security check using the new role functions
+if (!isLoggedIn() || (!isAdmin() && !isManager())) {
+    header("Location: ../login.php");
+    exit();
+}
 require_once '../includes/db_connect.php';
 
 // --- 1. Fetch Data ---
 
-// -- Fetch items requiring ADMIN ACTION (these should always be active) --
+$manager_condition = isManager() && !isAdmin() ? " AND u.manager_id = " . (int)$_SESSION['user_id'] : "";
+
+// -- Fetch items requiring ADMIN/MANAGER ACTION --
 $action_query = "
     SELECT uc.enrollment_id, u.username, c.course_name, uc.status, uc.retake_request
     FROM user_courses uc
     JOIN users u ON uc.user_id = u.user_id
     JOIN courses c ON uc.course_id = c.course_id
-    WHERE (uc.status = 'failed' 
-       OR (uc.status = 'completed' AND uc.signed_off = 0)
-       OR (uc.status = 'completed' AND uc.retake_request = 1))
-       AND uc.is_active = 1
+    WHERE uc.is_active = 1 AND (uc.status = 'failed' OR (uc.status = 'completed' AND uc.signed_off = 0) OR (uc.status = 'completed' AND uc.retake_request = 1))
+    $manager_condition
     ORDER BY u.username, c.course_name";
 $action_items_result = $conn->query($action_query);
 
-// -- Fetch data for top metric cards (based on active courses) --
-$total_users_result = $conn->query("SELECT COUNT(*) as count FROM users WHERE role = 'student'");
+// -- Fetch data for top metric cards --
+$total_users_result = $conn->query("SELECT COUNT(DISTINCT u.user_id) as count FROM users u JOIN user_roles ur ON u.user_id = ur.user_id JOIN roles r ON ur.role_id = r.role_id WHERE r.role_name = 'student' $manager_condition");
 $total_courses_result = $conn->query("SELECT COUNT(*) as count FROM courses");
-$completed_enrollments_result = $conn->query("SELECT COUNT(*) as count FROM user_courses WHERE status = 'completed' AND is_active = 1");
+$completed_enrollments_result = $conn->query("SELECT COUNT(*) as count FROM user_courses uc JOIN users u ON uc.user_id = u.user_id WHERE uc.status = 'completed' AND uc.is_active = 1 $manager_condition");
+
 $total_users = $total_users_result->fetch_assoc()['count'];
 $total_courses = $total_courses_result->fetch_assoc()['count'];
 $completed_enrollments = $completed_enrollments_result->fetch_assoc()['count'];
@@ -29,13 +36,13 @@ $completed_enrollments = $completed_enrollments_result->fetch_assoc()['count'];
 // -- Fetch products for the new filter dropdown --
 $products_result = $conn->query("SELECT * FROM products ORDER BY product_name");
 
-// -- Fetch data for the main progress table (shows ALL records, active and inactive) --
+// -- Fetch data for the main progress table --
 $progress_query = "
     SELECT uc.enrollment_id, u.username, c.course_name, uc.status, uc.score, uc.signed_off, uc.is_active,
            uc.completion_date, uc.deadline,
         (SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.enrollment_id = uc.enrollment_id) as attempt_count
     FROM user_courses uc JOIN users u ON uc.user_id = u.user_id JOIN courses c ON uc.course_id = c.course_id
-    WHERE u.role = 'student'
+    WHERE 1=1 $manager_condition
     ORDER BY u.username, c.course_name, uc.enrollment_id DESC";
 $progress_result = $conn->query($progress_query);
 
@@ -43,11 +50,11 @@ $progress_result = $conn->query($progress_query);
 include '../includes/header.php';
 ?>
 
-<h2>Admin Dashboard</h2>
-<p>Welcome, <?php echo htmlspecialchars($_SESSION['username'] ?? 'Admin'); ?>. Manage users, courses, and track progress from here.</p>
+<h2><?php echo isAdmin() ? 'Admin' : 'Manager'; ?> Dashboard</h2>
+<p>Welcome, <?php echo htmlspecialchars($_SESSION['username'] ?? 'User'); ?>. Manage users, courses, and track progress from here.</p>
 <hr>
 
-<h3>Admin Action Required</h3>
+<h3>Action Required</h3>
 <div class="card" style="margin-bottom: 20px;">
     <?php if ($action_items_result && $action_items_result->num_rows > 0): ?>
         <table class="data-table">
@@ -81,13 +88,9 @@ include '../includes/header.php';
                                 echo '<a href="deny_retake.php?id=' . $item['enrollment_id'] . '" class="button delete-btn">Deny</a>';
                                 $action_taken = true;
                             } else {
-                                $latest_attempt_id = 0;
-                                $attempt_id_result = $conn->query("SELECT attempt_id FROM quiz_attempts WHERE enrollment_id = {$item['enrollment_id']} ORDER BY attempt_date DESC LIMIT 1");
-                                if ($attempt_id_result && $attempt_id_result->num_rows > 0) {
-                                    $latest_attempt_id = $attempt_id_result->fetch_assoc()['attempt_id'];
-                                }
-                                if ($latest_attempt_id > 0) {
-                                    echo '<a href="view_attempt.php?id=' . $latest_attempt_id . '" class="button" style="background-color:#6c757d;">View</a>';
+                                $attempt_count_result = $conn->query("SELECT COUNT(*) as count FROM quiz_attempts WHERE enrollment_id = {$item['enrollment_id']}");
+                                if ($attempt_count_result && $attempt_count_result->fetch_assoc()['count'] > 0) {
+                                    echo '<a href="view_attempt.php?id=' . $item['enrollment_id'] . '" class="button" style="background-color:#6c757d;">View</a>';
                                     $action_taken = true;
                                 }
                                 if ($item['status'] === 'failed') {
@@ -183,75 +186,75 @@ include '../includes/header.php';
 
 <hr>
 
-<h3>Full User Training Progress</h3>
-<div class="table-container">
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>User</th>
-                <th>Course</th>
-                <th>Status</th>
-                <th>Score</th>
-                <th>Attempts</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php if ($progress_result && $progress_result->num_rows > 0): ?>
-                <?php while($row = $progress_result->fetch_assoc()): ?>
-                    <tr style="<?php echo !$row['is_active'] ? 'background-color: #f8f9fa; color: #6c757d;' : ''; ?>">
-                        <td><?php echo htmlspecialchars($row['username']); ?></td>
-                        <td><?php echo htmlspecialchars($row['course_name']); ?></td>
-                        <td>
-                            <?php
-                            if (!$row['is_active']) {
-                                echo 'Deallocated';
-                            } else {
-                                echo htmlspecialchars(ucwords(str_replace('_', ' ', $row['status'])));
+<div class="responsive-table" id="user-history-table">
+    <h3>User Training History</h3>
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>Course</th>
+                    <th>Status</th>
+                    <th>Score</th>
+                    <th>Attempts</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if ($progress_result && $progress_result->num_rows > 0): ?>
+                    <?php while($row = $progress_result->fetch_assoc()): ?>
+                        <tr style="<?php echo !$row['is_active'] ? 'background-color: #f8f9fa; color: #6c757d;' : ''; ?>">
+                            <td data-label="User"><?php echo htmlspecialchars($row['username']); ?></td>
+                            <td data-label="Course"><?php echo htmlspecialchars($row['course_name']); ?></td>
+                            <td data-label="Status">
+                                <?php
+                                if (!$row['is_active'] && $row['status'] === 'completed') {
+                                    echo 'Completed & Signed Off';
+                                } else {
+                                    echo htmlspecialchars(ucwords(str_replace('_', ' ', $row['status'])));
+                                }
+                                
                                 if ($row['status'] === 'completed' && $row['deadline']) {
                                     if ($row['completion_date'] > $row['deadline']) {
-                                        echo ' <span style="color:var(--error-color); font-size:0.8rem;">(Late)</span>';
+                                        echo ' <span class="status-late">(Late)</span>';
                                     } else {
-                                        echo ' <span style="color:var(--success-color); font-size:0.8rem;">(On Time)</span>';
+                                        echo ' <span class="status-ontime">(On Time)</span>';
                                     }
                                 }
-                            }
-                            ?>
-                        </td>
-                        <td><?php echo $row['score'] !== null ? htmlspecialchars(round($row['score'])) . '%' : 'N/A'; ?></td>
-                        <td><?php echo $row['attempt_count'] > 0 ? $row['attempt_count'] : 'N/A'; ?></td>
-                        <td class="actions-cell">
-                            <?php
-                            $latest_attempt_id = 0;
-                            $attempt_id_result = $conn->query("SELECT attempt_id FROM quiz_attempts WHERE enrollment_id = {$row['enrollment_id']} ORDER BY attempt_date DESC LIMIT 1");
-                            if ($attempt_id_result && $attempt_id_result->num_rows > 0) {
-                                $latest_attempt_id = $attempt_id_result->fetch_assoc()['attempt_id'];
-                            }
-                            $action_taken = false;
-                            if ($latest_attempt_id > 0) {
-                                echo '<a href="view_attempt.php?id=' . $latest_attempt_id . '" class="button" style="background-color:#6c757d;">View</a>';
-                                $action_taken = true;
-                            }
-                            if ($row['status'] === 'failed' && $row['is_active']) {
-                                echo '<a href="force_retake.php?id=' . $row['enrollment_id'] . '" class="button" onclick="return confirm(\'Are you sure?\');">Force Retake</a>';
-                                $action_taken = true;
-                            } elseif ($row['status'] === 'completed' && !$row['signed_off'] && $row['is_active']) {
-                                echo '<a href="sign_off.php?enrollment_id=' . $row['enrollment_id'] . '" class="button">Sign Off</a>';
-                                $action_taken = true;
-                            } elseif ($row['status'] === 'completed' && $row['signed_off']) {
-                                echo '<a href="../generate_certificate.php?id=' . $row['enrollment_id'] . '" class="button" style="background-color:var(--success-color);">Certificate</a>';
-                                $action_taken = true;
-                            }
-                            if (!$action_taken) { echo '&nbsp;'; }
-                            ?>
-                        </td>
-                    </tr>
-                <?php endwhile; ?>
-            <?php else: ?>
-                <tr><td colspan="6">No user progress records found.</td></tr>
-            <?php endif; ?>
-        </tbody>
-    </table>
+                                ?>
+                            </td>
+                            <td data-label="Score"><?php echo $row['score'] !== null ? htmlspecialchars(round($row['score'])) . '%' : 'N/A'; ?></td>
+                            <td data-label="Attempts"><?php echo $row['attempt_count'] > 0 ? $row['attempt_count'] : 'N/A'; ?></td>
+                            <td data-label="Actions" class="actions-cell">
+                                <?php
+                                $action_taken = false;
+                                 if ($row['attempt_count'] > 0) {
+                                    echo '<a href="view_attempt.php?id=' . $row['enrollment_id'] . '" class="button" style="background-color:#6c757d;">View</a>';
+                                    $action_taken = true;
+                                }
+                                if ($row['status'] === 'completed' && $row['signed_off']) {
+                                    echo '<a href="../generate_certificate.php?id=' . $row['enrollment_id'] . '" class="button success">Certificate</a>';
+                                    $action_taken = true;
+                                } elseif ($row['is_active']) {
+                                    if ($row['status'] === 'failed') {
+                                        echo '<a href="force_retake.php?id=' . $row['enrollment_id'] . '" class="button" onclick="return confirm(\'Are you sure?\');">Force Retake</a>';
+                                        $action_taken = true;
+                                    } elseif ($row['status'] === 'completed' && !$row['signed_off']) {
+                                        echo '<a href="sign_off.php?enrollment_id=' . $row['enrollment_id'] . '" class="button">Sign Off</a>';
+                                        $action_taken = true;
+                                    }
+                                }
+                                if (!$action_taken) { echo '&nbsp;'; }
+                                ?>
+                            </td>
+                        </tr>
+                    <?php endwhile; ?>
+                <?php else: ?>
+                    <tr><td colspan="6">No user progress records found.</td></tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
 </div>
 
 <?php

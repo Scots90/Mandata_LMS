@@ -3,24 +3,24 @@ session_start();
 require_once 'includes/db_connect.php';
 require_once 'includes/functions.php';
 
-// --- Security Check ---
-if (!isLoggedIn()) { redirect('login.php'); }
-if (isAdmin()) { redirect('admin/index.php'); }
+// --- Corrected Security Check for Multi-Role System ---
+if (!isLoggedIn()) {
+    redirect('login.php');
+}
+if (!isStudent()) {
+    redirect('admin/index.php');
+}
 
 $user_id = $_SESSION['user_id'];
 
-// --- 1. Fetch All Data ---
-
-// Get user's name
+// --- Data fetching logic remains the same ---
 $stmt_user = $conn->prepare("SELECT username FROM users WHERE user_id = ?");
 $stmt_user->bind_param("i", $user_id);
 $stmt_user->execute();
 $username = $stmt_user->get_result()->fetch_assoc()['username'] ?? 'User';
 $stmt_user->close();
 
-// Get key metrics for ACTIVE courses
 $metrics = [];
-$status_types = ['not_started', 'in_progress', 'completed'];
 $stmt_metric = $conn->prepare("SELECT status, COUNT(*) as count FROM user_courses WHERE user_id = ? AND is_active = 1 GROUP BY status");
 $stmt_metric->bind_param("i", $user_id);
 $stmt_metric->execute();
@@ -30,7 +30,6 @@ while($row = $metrics_result->fetch_assoc()) {
 }
 $stmt_metric->close();
 
-// Fetch outstanding courses (only ACTIVE ones that are not started or in progress)
 $stmt_outstanding = $conn->prepare("
     SELECT c.course_id, c.course_name, c.course_description, uc.status, uc.last_viewed_page
     FROM user_courses uc JOIN courses c ON uc.course_id = c.course_id
@@ -42,21 +41,13 @@ $stmt_outstanding->execute();
 $outstanding_courses = $stmt_outstanding->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt_outstanding->close();
 
-// Fetch ALL historical courses (Completed or Failed)
 $stmt_history = $conn->prepare("
-    SELECT 
-        c.course_name, 
-        uc.completion_date, 
-        uc.score, 
-        uc.enrollment_id, 
-        uc.status, 
-        uc.signed_off, 
-        uc.is_active,
-        (SELECT MAX(qa.attempt_date) FROM quiz_attempts qa WHERE qa.enrollment_id = uc.enrollment_id) as last_attempt_date
-    FROM user_courses uc 
+    SELECT c.course_name, uc.completion_date, qa.score, qa.attempt_id, qa.passed, uc.signed_off, uc.enrollment_id, qa.attempt_date
+    FROM quiz_attempts qa
+    JOIN user_courses uc ON qa.enrollment_id = uc.enrollment_id
     JOIN courses c ON uc.course_id = c.course_id
-    WHERE uc.user_id = ? AND uc.status IN ('completed', 'failed')
-    ORDER BY uc.enrollment_id DESC
+    WHERE uc.user_id = ?
+    ORDER BY qa.attempt_date DESC
 ");
 $stmt_history->bind_param("i", $user_id);
 $stmt_history->execute();
@@ -66,8 +57,10 @@ $stmt_history->close();
 include 'includes/header.php';
 ?>
 
-<h2>Welcome, <?php echo e($username); ?>!</h2>
-<p>Here is your training summary. Select a course to begin or continue.</p>
+<div class="dashboard-center">
+    <h2>Welcome, <?php echo e($username); ?>!</h2>
+    <p>Here is your training summary. Select a course to begin or continue.</p>
+</div>
 <hr>
 
 <h3>At a Glance</h3>
@@ -119,42 +112,32 @@ include 'includes/header.php';
             <thead>
                 <tr>
                     <th>Course Name</th>
-                    <th>Date</th>
-                    <th>Status</th>
+                    <th>Date of Attempt</th>
+                    <th>Result</th>
                     <th>Score</th>
-                    <th>Sign-off Status</th>
+                    <th>Certificate</th>
                 </tr>
             </thead>
             <tbody>
-                <?php foreach ($history_courses_list as $course): ?>
+                <?php foreach ($history_courses_list as $attempt): ?>
                     <tr>
-                        <td><?php echo e($course['course_name']); ?></td>
+                        <td><?php echo e($attempt['course_name']); ?></td>
+                        <td><?php echo date('d-M-Y', strtotime($attempt['attempt_date'])); ?></td>
                         <td>
-                            <?php 
-                            if ($course['status'] === 'completed') {
-                                echo date('d-M-Y', strtotime($course['completion_date']));
-                            } elseif ($course['last_attempt_date']) {
-                                echo date('d-M-Y', strtotime($course['last_attempt_date']));
-                            } else {
-                                echo 'N/A';
-                            }
-                            ?>
+                            <?php if ($attempt['passed']): ?>
+                                <span class="status-badge status-completed">Pass</span>
+                            <?php else: ?>
+                                <span class="status-badge status-failed">Fail</span>
+                            <?php endif; ?>
                         </td>
-                        <td><span class="status-badge status-<?php echo e($course['status']); ?>"><?php echo e($course['status']); ?></span></td>
-                        <td><?php echo e($course['score']); ?>%</td>
+                        <td><?php echo e(round($attempt['score'])); ?>%</td>
                         <td>
-                            <?php if ($course['status'] === 'completed'): ?>
-                                <?php if ($course['signed_off']): ?>
-                                    <a href="generate_certificate.php?id=<?php echo $course['enrollment_id']; ?>" class="button" style="background-color: var(--success-color);">Download Certificate</a>
-                                <?php else: ?>
-                                    <span style="color: #6c757d;">Pending</span>
-                                <?php endif; ?>
-                            <?php else: // Failed ?>
-                                <?php if ($course['is_active']): ?>
-                                    <span style="color: #6c757d;">Pending Review</span>
-                                <?php else: ?>
-                                    <span style="color: var(--primary-color); font-weight: bold;">Course Retaken</span>
-                                <?php endif; ?>
+                            <?php if ($attempt['passed'] && $attempt['signed_off']): ?>
+                                <a href="generate_certificate.php?id=<?php echo $attempt['enrollment_id']; ?>" class="button success">Download</a>
+                            <?php elseif ($attempt['passed'] && !$attempt['signed_off']): ?>
+                                 <span style="color: #6c757d;">Pending Sign-off</span>
+                            <?php else: ?>
+                                N/A
                             <?php endif; ?>
                         </td>
                     </tr>

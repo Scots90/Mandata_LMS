@@ -5,18 +5,38 @@
  * Checks if a user is currently logged in.
  */
 function isLoggedIn(): bool {
-    // We assume session_start() has already been called
     return isset($_SESSION['user_id']);
 }
 
 /**
- * Checks if the logged-in user is an administrator.
+ * Checks if the logged-in user has the 'admin' role.
  */
 function isAdmin(): bool {
-    if (!isLoggedIn()) {
+    if (!isLoggedIn() || !isset($_SESSION['roles'])) {
         return false;
     }
-    return isset($_SESSION['role']) && $_SESSION['role'] === 'admin';
+    return in_array('admin', $_SESSION['roles']);
+}
+
+/**
+ * Checks if the logged-in user has the 'manager' role.
+ * Note: An admin is also considered a manager for permission purposes.
+ */
+function isManager(): bool {
+    if (!isLoggedIn() || !isset($_SESSION['roles'])) {
+        return false;
+    }
+    return in_array('manager', $_SESSION['roles']) || in_array('admin', $_SESSION['roles']);
+}
+
+/**
+ * Checks if the logged-in user has the 'student' role.
+ */
+function isStudent(): bool {
+    if (!isLoggedIn() || !isset($_SESSION['roles'])) {
+        return false;
+    }
+    return in_array('student', $_SESSION['roles']);
 }
 
 /**

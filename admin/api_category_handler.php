@@ -1,29 +1,28 @@
 <?php
 session_start();
-header('Content-Type: application/json'); // Set header for JSON response
+header('Content-Type: application/json');
+require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
 
-// Basic security checks
-if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin' || $_SERVER['REQUEST_METHOD'] !== 'POST') {
+// --- FIX: Use the correct, safe function for the security check ---
+if (!isAdmin()) {
     echo json_encode(['status' => 'error', 'message' => 'Unauthorized access.']);
     exit();
 }
 
-require_once '../includes/db_connect.php';
-
 $action = $_POST['action'] ?? '';
 $response = ['status' => 'error', 'message' => 'Invalid action.'];
 
-// --- UPDATE ACTION ---
 if ($action === 'update_category') {
-    $id = $_POST['id'] ?? 0;
-    $name = trim($_POST['name'] ?? '');
+    $category_id = $_POST['id'] ?? 0;
+    $category_name = trim($_POST['name'] ?? '');
     $product_id = $_POST['product_id'] ?? 0;
 
-    if ($id > 0 && !empty($name) && $product_id > 0) {
+    if ($category_id > 0 && !empty($category_name) && $product_id > 0) {
         $stmt = $conn->prepare("UPDATE course_categories SET category_name = ?, product_id = ? WHERE category_id = ?");
-        $stmt->bind_param("sii", $name, $product_id, $id);
+        $stmt->bind_param("sii", $category_name, $product_id, $category_id);
         if ($stmt->execute()) {
-            $response = ['status' => 'success', 'message' => 'Category updated successfully.'];
+            $response = ['status' => 'success'];
         } else {
             $response['message'] = 'Error updating category.';
         }
@@ -33,15 +32,13 @@ if ($action === 'update_category') {
     }
 }
 
-// --- DELETE ACTION ---
 if ($action === 'delete_category') {
-    $id = $_POST['id'] ?? 0;
-
-    if ($id > 0) {
+    $category_id = $_POST['id'] ?? 0;
+    if ($category_id > 0) {
         $stmt = $conn->prepare("DELETE FROM course_categories WHERE category_id = ?");
-        $stmt->bind_param("i", $id);
+        $stmt->bind_param("i", $category_id);
         if ($stmt->execute()) {
-            $response = ['status' => 'success', 'message' => 'Category deleted successfully.'];
+            $response = ['status' => 'success'];
         } else {
             $response['message'] = 'Error deleting category.';
         }
@@ -53,3 +50,4 @@ if ($action === 'delete_category') {
 
 $conn->close();
 echo json_encode($response);
+?>

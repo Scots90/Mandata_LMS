@@ -1,30 +1,38 @@
 <?php
 session_start();
 header('Content-Type: application/json');
+require_once 'includes/functions.php';
 
-// Security check: Must be a logged-in student
-if (!isset($_SESSION['user_id']) || $_SESSION['role'] === 'admin') {
-    http_response_code(403); // Forbidden
+if (!isLoggedIn()) {
+    http_response_code(403);
     echo json_encode(['error' => 'Unauthorized']);
     exit();
 }
 require_once 'includes/db_connect.php';
 
 $user_id = $_SESSION['user_id'];
+$product_id = isset($_GET['product_id']) ? (int)$_GET['product_id'] : 0;
 $category_id = isset($_GET['category_id']) ? (int)$_GET['category_id'] : 0;
 
-// Base query to find courses the user is NOT enrolled in
 $sql = "
     SELECT c.course_id, c.course_name, c.course_description
     FROM courses c
-    LEFT JOIN user_courses uc ON c.course_id = uc.course_id AND uc.user_id = ?
-    WHERE uc.enrollment_id IS NULL
+    LEFT JOIN course_categories cc ON c.category_id = cc.category_id
+    WHERE NOT EXISTS (
+        SELECT 1 
+        FROM user_courses uc 
+        WHERE uc.course_id = c.course_id AND uc.user_id = ? AND uc.is_active = 1
+    )
 ";
 
 $params = [$user_id];
 $types = 'i';
 
-// Add the category filter if a category is selected
+if ($product_id > 0) {
+    $sql .= " AND cc.product_id = ?";
+    $params[] = $product_id;
+    $types .= 'i';
+}
 if ($category_id > 0) {
     $sql .= " AND c.category_id = ?";
     $params[] = $category_id;
@@ -35,7 +43,7 @@ $sql .= " ORDER BY c.course_name ASC";
 
 $stmt = $conn->prepare($sql);
 if (!$stmt) {
-    http_response_code(500); // Internal Server Error
+    http_response_code(500);
     echo json_encode(['error' => 'Database query failed to prepare.']);
     exit();
 }

@@ -1,10 +1,20 @@
 <?php
 session_start();
-if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') { header("Location: ../login.php"); exit(); }
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
+
+// --- Corrected Security Check for Multi-Role System ---
+// Allows access if the user is an admin OR a manager
+if (!isLoggedIn() || (!isAdmin() && !isManager())) {
+    header("Location: ../login.php");
+    exit();
+}
 
 $course_id = $_GET['id'] ?? 0;
-if (!$course_id) { header("Location: courses.php"); exit(); }
+if (!$course_id) {
+    header("Location: courses.php");
+    exit();
+}
 
 $course_stmt = $conn->prepare("SELECT course_name FROM courses WHERE course_id = ?");
 $course_stmt->bind_param("i", $course_id);
@@ -12,16 +22,20 @@ $course_stmt->execute();
 $course = $course_stmt->get_result()->fetch_assoc();
 $course_stmt->close();
 
-if (!$course) { echo "Course not found."; exit(); }
+if (!$course) {
+    echo "Course not found.";
+    exit();
+}
 
 $feedback = '';
 
-// This large block handles all form submissions for adding content.
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_content'])) {
+// --- Action Restriction: Only allow Admins to add content ---
+if (isAdmin() && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_content'])) {
     $title = trim($_POST['title']);
     $content_type = $_POST['content_type'];
     $content_data = null;
 
+    // Switch statement to handle various content types
     switch ($content_type) {
         case 'text':
             if (!empty($_POST['content_text'])) {
@@ -31,7 +45,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_content'])) {
         case 'video':
             if (isset($_FILES['content_video_file']) && $_FILES['content_video_file']['error'] == 0) {
                 $upload_dir = '../uploads/videos/';
-                // Sanitize the filename
                 $original_filename = $_FILES['content_video_file']['name'];
                 $sanitized_basename = strtolower(preg_replace('/[^a-zA-Z0-9-]/', '-', pathinfo($original_filename, PATHINFO_FILENAME)));
                 $file_extension = strtolower(pathinfo($original_filename, PATHINFO_EXTENSION));
@@ -79,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_content'])) {
                     }
                 }
             }
-            if ($has_upload) { $content_data = json_encode($gallery_items); } 
+            if ($has_upload) { $content_data = json_encode($gallery_items); }
             else { $feedback = "You must upload at least one image for the gallery."; }
             break;
         case 'quiz_inline':
@@ -134,30 +147,33 @@ include '../includes/header.php';
 
 <a href="courses.php">&larr; Back to Courses</a>
 <h2>Manage Content for: <?php echo htmlspecialchars($course['course_name']); ?></h2>
-<?php if (!empty($feedback)): ?><div class="error-message"><?php echo htmlspecialchars($feedback); ?></div><?php endif; ?>
+<?php if (!empty($feedback) && isAdmin()): ?><div class="error-message"><?php echo htmlspecialchars($feedback); ?></div><?php endif; ?>
 
 <div class="card" style="margin-bottom: 20px;">
-    <h3>Course Pages <span style="font-size: 0.8rem; color: #666;">(Click and drag rows to reorder)</span></h3>
+    <h3>Course Pages <?php if(isAdmin()): ?><span style="font-size: 0.8rem; color: #666;">(Click and drag rows to reorder)</span><?php endif; ?></h3>
     <table class="data-table">
-        <thead><tr><th>Order</th><th>Title</th><th>Type</th><th>Actions</th></tr></thead>
-        <tbody id="sortable-content">
+        <thead><tr><th>Order</th><th>Title</th><th>Type</th><?php if(isAdmin()): ?><th>Actions</th><?php endif; ?></tr></thead>
+        <tbody <?php if(isAdmin()): ?>id="sortable-content"<?php endif; ?>>
             <?php if ($content_list && $content_list->num_rows > 0): while($content = $content_list->fetch_assoc()): ?>
-                <tr id="content_<?php echo $content['content_id']; ?>" style="cursor: move;">
+                <tr id="content_<?php echo $content['content_id']; ?>" style="<?php echo isAdmin() ? 'cursor: move;' : ''; ?>">
                     <td><?php echo $content['content_order']; ?></td>
                     <td><?php echo htmlspecialchars($content['title']); ?></td>
                     <td><?php echo ucfirst(str_replace('_', ' ', $content['content_type'])); ?></td>
+                    <?php if(isAdmin()): ?>
                     <td class="actions-cell">
                         <a href="edit_course_content.php?id=<?php echo $content['content_id']; ?>" class="button">Edit</a>
                         <button class="button delete-btn delete-content-btn" data-id="<?php echo $content['content_id']; ?>">Delete</button>
                     </td>
+                    <?php endif; ?>
                 </tr>
             <?php endwhile; else: ?>
-                <tr><td colspan="4">No content yet. Add some below.</td></tr>
+                <tr><td colspan="<?php echo isAdmin() ? '4' : '3'; ?>">No content yet.<?php if(isAdmin()): ?> Add some below.<?php endif; ?></td></tr>
             <?php endif; ?>
         </tbody>
     </table>
 </div>
 
+<?php if(isAdmin()): ?>
 <div class="card">
     <h3>Add New Page/Content</h3>
     <form id="add-content-form" method="POST" enctype="multipart/form-data">
@@ -180,6 +196,7 @@ include '../includes/header.php';
         <button type="submit" name="add_content" class="button">Add to Course</button>
     </form>
 </div>
+<?php endif; ?>
 
 <?php
 $conn->close();

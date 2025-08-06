@@ -1,9 +1,10 @@
 <?php
 session_start();
 header('Content-Type: application/json');
+require_once '../includes/functions.php';
 
-// Security check
-if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
+// --- FIX: Use the safe, role-aware functions for security check ---
+if (!isLoggedIn() || (!isAdmin() && !isManager())) {
     http_response_code(403); // Forbidden
     echo json_encode(['error' => 'Unauthorized']);
     exit();
@@ -13,27 +14,20 @@ require_once '../includes/db_connect.php';
 $product_id = isset($_GET['product_id']) ? (int)$_GET['product_id'] : 0;
 
 $sql = "SELECT category_id, category_name FROM course_categories";
-$params = [];
-$types = '';
-
-// If a valid product ID is provided, add a WHERE clause
 if ($product_id > 0) {
     $sql .= " WHERE product_id = ?";
-    $params[] = $product_id;
-    $types .= 'i';
 }
-
 $sql .= " ORDER BY category_name";
 
 $stmt = $conn->prepare($sql);
 if (!$stmt) {
-    http_response_code(500); // Internal Server Error
+    http_response_code(500);
     echo json_encode(['error' => 'Database query failed to prepare.']);
     exit();
 }
 
 if ($product_id > 0) {
-    $stmt->bind_param($types, ...$params);
+    $stmt->bind_param('i', $product_id);
 }
 
 $stmt->execute();

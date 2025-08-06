@@ -1,8 +1,5 @@
 <?php
 // /includes/header.php
-
-// The session is started in each main file (index.php, dashboard.php, etc.)
-// so we no longer need a session_start() call here.
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -31,17 +28,25 @@
         <nav class="main-nav">
             <ul>
                 <?php if (isset($_SESSION['user_id'])): ?>
-                    <?php if ($_SESSION['role'] === 'admin'): ?>
+                    <?php // --- FIX: Use the safe helper functions to check roles --- ?>
+                    <?php if (isAdmin()): ?>
                         <li><a href="/mandata_lms/admin/index.php">Admin Dashboard</a></li>
                         <li><a href="/mandata_lms/admin/users.php">Manage Users</a></li>
                         <li><a href="/mandata_lms/admin/products.php">Manage Products</a></li>
                         <li><a href="/mandata_lms/admin/categories.php">Manage Categories</a></li>
                         <li><a href="/mandata_lms/admin/courses.php">Manage Courses</a></li>
                         <li><a href="/mandata_lms/admin/assign_courses.php">Assign Courses</a></li>
-                    <?php else: ?>
-                        <li><a href="/mandata_lms/dashboard.php">Dashboard</a></li>
-                        <li><a href="/mandata_lms/enroll.php">Course Catalog</a></li>
+                    <?php elseif (isManager()): ?>
+                        <li><a href="/mandata_lms/admin/index.php">Manager Dashboard</a></li>
+                        <li><a href="/mandata_lms/admin/users.php">Add Users</a></li>
+                        <li><a href="/mandata_lms/admin/assign_courses.php">Assign Courses</a></li>
                     <?php endif; ?>
+                    
+                    <?php if (isStudent()): ?>
+                         <li><a href="/mandata_lms/dashboard.php">My Dashboard</a></li>
+                         <li><a href="/mandata_lms/enroll.php">Course Catalog</a></li>
+                    <?php endif; ?>
+
                     <li><a href="/mandata_lms/logout.php">Logout</a></li>
                 <?php else: ?>
                     <li><a href="/mandata_lms/login.php">Login</a></li>

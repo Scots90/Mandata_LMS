@@ -13,19 +13,16 @@ if (!isAdmin()) {
 $action = $_POST['action'] ?? '';
 $response = ['status' => 'error', 'message' => 'Invalid action.'];
 
-if ($action === 'update_course') {
-    $course_id = $_POST['id'] ?? 0;
-    $course_name = trim($_POST['name'] ?? '');
-    $course_description = trim($_POST['description'] ?? '');
-    $category_id = $_POST['category_id'] ?? 0;
-
-    if ($course_id > 0 && !empty($course_name) && $category_id > 0) {
-        $stmt = $conn->prepare("UPDATE courses SET course_name = ?, course_description = ?, category_id = ? WHERE course_id = ?");
-        $stmt->bind_param("ssii", $course_name, $course_description, $category_id, $course_id);
+if ($action === 'update_product') {
+    $product_id = $_POST['id'] ?? 0;
+    $product_name = trim($_POST['name'] ?? '');
+    if ($product_id > 0 && !empty($product_name)) {
+        $stmt = $conn->prepare("UPDATE products SET product_name = ? WHERE product_id = ?");
+        $stmt->bind_param("si", $product_name, $product_id);
         if ($stmt->execute()) {
             $response = ['status' => 'success'];
         } else {
-            $response['message'] = 'Error updating course.';
+            $response['message'] = 'Error updating product.';
         }
         $stmt->close();
     } else {
@@ -33,15 +30,15 @@ if ($action === 'update_course') {
     }
 }
 
-if ($action === 'delete_course') {
-    $course_id = $_POST['id'] ?? 0;
-    if ($course_id > 0) {
-        $stmt = $conn->prepare("DELETE FROM courses WHERE course_id = ?");
-        $stmt->bind_param("i", $course_id);
+if ($action === 'delete_product') {
+    $product_id = $_POST['id'] ?? 0;
+    if ($product_id > 0) {
+        $stmt = $conn->prepare("DELETE FROM products WHERE product_id = ?");
+        $stmt->bind_param("i", $product_id);
         if ($stmt->execute()) {
             $response = ['status' => 'success'];
         } else {
-            $response['message'] = 'Error deleting course.';
+            $response['message'] = 'Error deleting product.';
         }
         $stmt->close();
     } else {

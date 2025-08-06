@@ -1,31 +1,36 @@
 <?php
 session_start();
+require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
 
-// --- Security Check ---
-if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
-    // If not an admin, redirect to login.
+if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['admin', 'manager'])) {
     header("Location: ../login.php");
     exit();
 }
 
-require_once '../includes/db_connect.php';
+$enrollment_id = $_GET['enrollment_id'] ?? 0;
 
-// Check if the enrollment_id is provided in the URL
-if (isset($_GET['enrollment_id']) && is_numeric($_GET['enrollment_id'])) {
+if ($enrollment_id > 0) {
+    if (isManager()) {
+        $manager_id = $_SESSION['user_id'];
+        $stmt_check = $conn->prepare("SELECT uc.enrollment_id FROM user_courses uc JOIN users u ON uc.user_id = u.user_id WHERE uc.enrollment_id = ? AND u.manager_id = ?");
+        $stmt_check->bind_param("ii", $enrollment_id, $manager_id);
+        $stmt_check->execute();
+        $result = $stmt_check->get_result();
+        if ($result->num_rows === 0) {
+            header("Location: index.php");
+            exit();
+        }
+        $stmt_check->close();
+    }
     
-    $enrollment_id = (int)$_GET['enrollment_id'];
-    
-    // Prepare and execute the update statement
-    $stmt = $conn->prepare("UPDATE user_courses SET signed_off = 1 WHERE enrollment_id = ?");
+    $stmt = $conn->prepare("UPDATE user_courses SET signed_off = 1, is_active = 0 WHERE enrollment_id = ?");
     $stmt->bind_param("i", $enrollment_id);
-    
-    // Execute the query
     $stmt->execute();
-    
     $stmt->close();
-    $conn->close();
 }
 
-// Redirect the admin back to the dashboard to see the change
+$conn->close();
 header("Location: index.php");
 exit();
+?>

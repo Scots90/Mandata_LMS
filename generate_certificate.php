@@ -10,7 +10,12 @@ if (!isLoggedIn()) { redirect('login.php'); }
 $enrollment_id = $_GET['id'] ?? 0;
 if (!$enrollment_id) { die("Invalid request."); }
 
-// Fetch the necessary data for the certificate
+$user_id = $_SESSION['user_id'];
+$cert_data = null;
+
+// --- FIX START: Reworked permission logic ---
+
+// 1. Check if the logged-in user is the owner of the certificate
 $stmt = $conn->prepare("
     SELECT u.username, c.course_name, uc.completion_date
     FROM user_courses uc
@@ -18,28 +23,46 @@ $stmt = $conn->prepare("
     JOIN courses c ON uc.course_id = c.course_id
     WHERE uc.enrollment_id = ? AND uc.user_id = ? AND uc.status = 'completed' AND uc.signed_off = 1
 ");
-$stmt->bind_param("ii", $enrollment_id, $_SESSION['user_id']);
+$stmt->bind_param("ii", $enrollment_id, $user_id);
 $stmt->execute();
 $cert_data = $stmt->get_result()->fetch_assoc();
 $stmt->close();
 
+// 2. If not the owner, check if the user is a Manager and owns the user
+if (!$cert_data && isManager()) {
+    $manager_id = $user_id;
+    $stmt_manager = $conn->prepare("
+        SELECT u.username, c.course_name, uc.completion_date
+        FROM user_courses uc
+        JOIN users u ON uc.user_id = u.user_id
+        JOIN courses c ON uc.course_id = c.course_id
+        WHERE uc.enrollment_id = ? AND u.manager_id = ? AND uc.status = 'completed' AND uc.signed_off = 1
+    ");
+    $stmt_manager->bind_param("ii", $enrollment_id, $manager_id);
+    $stmt_manager->execute();
+    $cert_data = $stmt_manager->get_result()->fetch_assoc();
+    $stmt_manager->close();
+}
+
+// 3. Finally, check if the user is an Admin
+if (!$cert_data && isAdmin()) {
+    $stmt_admin = $conn->prepare("
+        SELECT u.username, c.course_name, uc.completion_date
+        FROM user_courses uc
+        JOIN users u ON uc.user_id = u.user_id
+        JOIN courses c ON uc.course_id = c.course_id
+        WHERE uc.enrollment_id = ? AND uc.status = 'completed' AND uc.signed_off = 1
+    ");
+    $stmt_admin->bind_param("i", $enrollment_id);
+    $stmt_admin->execute();
+    $cert_data = $stmt_admin->get_result()->fetch_assoc();
+    $stmt_admin->close();
+}
+
+// --- FIX END ---
+
 if (!$cert_data) {
-    if (isAdmin()) {
-        $stmt_admin = $conn->prepare("
-            SELECT u.username, c.course_name, uc.completion_date
-            FROM user_courses uc
-            JOIN users u ON uc.user_id = u.user_id
-            JOIN courses c ON uc.course_id = c.course_id
-            WHERE uc.enrollment_id = ? AND uc.status = 'completed' AND uc.signed_off = 1
-        ");
-        $stmt_admin->bind_param("i", $enrollment_id);
-        $stmt_admin->execute();
-        $cert_data = $stmt_admin->get_result()->fetch_assoc();
-        $stmt_admin->close();
-    }
-    if (!$cert_data) {
-        die("Certificate not found or requirements not met.");
-    }
+    die("Certificate not found or you do not have permission to view it.");
 }
 
 
